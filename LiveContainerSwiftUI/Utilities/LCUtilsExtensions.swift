@@ -518,9 +518,12 @@ extension LCUtils {
     
     static func openSideStore(delegate: LCAppModelDelegate? = nil, urlStr: String? = nil) {
         let sideStoreApp = LCAppModel(appInfo: BuiltInSideStoreAppInfo.shared, delegate: delegate)
-        
+        // 无论从加号菜单、设置页还是小组件进来，统一盖品牌过渡页，
+        // 不闪 openSSS 启动页 / 已安装应用页。小组件路径若已显示则不会重复创建。
+        TreeLaunchOverlay.show(name: "openSSS")
         Task {
-            try await sideStoreApp.runApp(bundleIdOverride: "builtinSideStore", urlStr: urlStr)
+            try? await sideStoreApp.runApp(bundleIdOverride: "builtinSideStore", urlStr: urlStr)
+            TreeLaunchOverlay.hide(after: 0.9)
         }
     }
 }

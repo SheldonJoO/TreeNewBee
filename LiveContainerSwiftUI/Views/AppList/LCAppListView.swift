@@ -136,14 +136,17 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
     }
 
     /// 列表容器：网格模式用 LazyVGrid，列表模式保留原 LazyVStack。
+    /// leading 用于放「内置 openSSS」这类不属于 sharedModel 数据源的首格。
     /// 使用固定的 AnyView 闭包，避免泛型推断导致 body 类型检查超时。
     @ViewBuilder
     private func appsContainer(
         _ apps: [LCAppModel],
+        leading: AnyView? = nil,
         content: @escaping (LCAppModel) -> AnyView
     ) -> some View {
         if appViewMode == 1 {
             LazyVGrid(columns: gridColumns, spacing: 16) {
+                if let leading { leading }
                 ForEach(apps, id: \.self) { app in
                     content(app)
                 }
@@ -151,12 +154,89 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
             }
         } else {
             LazyVStack {
+                if let leading { leading }
                 ForEach(apps, id: \.self) { app in
                     content(app)
                 }
                 .transition(.scale)
             }
         }
+    }
+
+    /// TreeNewBee: 内置 openSSS 作为 App 列表首格。
+    /// 不塞进 sharedModel.apps，排序 / 隐藏 / 卸载 / 容器逻辑完全不受影响。
+    private var builtInLeading: AnyView? {
+        guard UserDefaults.sideStoreExist(), searchContext.debouncedQuery.isEmpty else { return nil }
+        return AnyView(builtInTile)
+    }
+
+    @ViewBuilder
+    private var builtInTile: some View {
+        Button {
+            LCUtils.openSideStore(delegate: self)
+        } label: {
+            if appViewMode == 1 {
+                VStack(spacing: 6) {
+                    Group {
+                        if let icon = BuiltInSideStoreAppInfo.shared.iconIsDarkIcon(false) {
+                            Image(uiImage: icon)
+                                .resizable()
+                                .scaledToFit()
+                        } else {
+                            Image(systemName: "app.badge.checkmark")
+                                .resizable()
+                                .scaledToFit()
+                                .padding(14)
+                                .foregroundStyle(TreeAppsTheme.accent)
+                        }
+                    }
+                    .frame(width: 60, height: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(TreeAppsTheme.accent.opacity(0.55), lineWidth: 1.5)
+                    )
+                    Text("openSSS")
+                        .font(.footnote)
+                        .foregroundStyle(TreeAppsTheme.primaryText)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                }
+            } else {
+                HStack(spacing: 12) {
+                    Group {
+                        if let icon = BuiltInSideStoreAppInfo.shared.iconIsDarkIcon(false) {
+                            Image(uiImage: icon)
+                                .resizable()
+                                .scaledToFit()
+                        } else {
+                            Image(systemName: "app.badge.checkmark")
+                                .resizable()
+                                .scaledToFit()
+                                .padding(14)
+                                .foregroundStyle(TreeAppsTheme.accent)
+                        }
+                    }
+                    .frame(width: 52, height: 52)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("openSSS")
+                            .font(.headline)
+                            .foregroundStyle(TreeAppsTheme.primaryText)
+                        Text("内置 · 侧载到桌面")
+                            .font(.caption)
+                            .foregroundStyle(TreeAppsTheme.secondaryText)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(TreeAppsTheme.secondaryText)
+                }
+                .padding(12)
+                .treeAppsCard()
+            }
+        }
+        .buttonStyle(.plain)
     }
     
     init() {
@@ -174,7 +254,7 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                 })
                 .hidden()
                 
-                appsContainer(filteredApps) { app in
+                appsContainer(filteredApps, leading: builtInLeading) { app in
                     AnyView(appTile(app))
                 }
                 .padding()
@@ -268,6 +348,12 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                                 Button("lc.appList.installFromUrl".loc, systemImage: "link.badge.plus", action: {
                                     Task{ await startInstallFromUrl() }
                                 })
+                                // TreeNewBee: 侧载到桌面 = 启动内置 openSSS（原来的 openSSS Tab 入口）
+                                if UserDefaults.sideStoreExist() {
+                                    Button("侧载到桌面", systemImage: "app.badge.checkmark", action: {
+                                        LCUtils.openSideStore(delegate: self)
+                                    })
+                                }
                             } label: {
                                 Label("add", systemImage: "plus")
                             }
@@ -1070,7 +1156,10 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
 
         do {
             try await appFound.runApp(multitask: nil, containerFolderName: container, urlStr: urlStr, forceJIT: forceJIT)
+            // 等 guest 把界面铺好再淡出品牌过渡页（openSSS 自己还有一屏启动页）
+            TreeLaunchOverlay.hide(after: 0.9)
         } catch {
+            TreeLaunchOverlay.hide(after: 0)
             errorInfo = error.localizedDescription
             errorShow = true
         }
@@ -1247,6 +1336,12 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                     }
                 }
                 if let bundleId, bundleId != "ui"{
+                    // 内置 openSSS：走专用入口，少绕一层通用查表；
+                    // 中间闪屏由 TreeLaunchOverlay 品牌过渡页遮住。
+                    if bundleId == "builtinSideStore" && UserDefaults.sideStoreExist() {
+                        LCUtils.openSideStore(delegate: self, urlStr: urlStr)
+                        return
+                    }
                     Task { await launchAppWithBundleId(bundleId: bundleId, container: containerName, urlStr: urlStr, forceJIT: forceJIT) }
                 }
             }

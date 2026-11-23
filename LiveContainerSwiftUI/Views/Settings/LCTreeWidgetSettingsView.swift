@@ -2,8 +2,9 @@
 //  LCTreeWidgetSettingsView.swift
 //  TreeNewBee —— 小组件 App 手动配置
 //
-//  列表直接来自 TreeWidgetSnapshotWriter.scanInstalledApps()：
-//  只扫 TreeNewBee 安装 Guest App 的目录，跟 openSSS 侧载到桌面的 App 无关。
+//  列表直接来自 TreeWidgetSnapshotWriter.allCandidates()：
+//  扫 TreeNewBee 安装 Guest App 的目录，再加一条「内置 openSSS」。
+//  openSSS 侧载到桌面的 App 不属于这里。
 //
 
 import SwiftUI
@@ -18,17 +19,15 @@ struct LCTreeWidgetSettingsView: View {
     @State private var scanned: [TreeWidgetScannedApp] = []
 
     private var appEntries: [(key: String, name: String)] {
-        var result: [(String, String)] = scanned.map {
+        // 内置 openSSS 排在首位，可像普通 App 一样勾选 / 取消。
+        // 点它时的中间闪屏由 TreeLaunchOverlay 品牌过渡页遮住。
+        return scanned.map {
             ($0.bundleName, "\($0.name)\($0.isShared ? " · 共享" : "")")
         }
-        if UserDefaults.sideStoreExist() {
-            result.append(("builtinSideStore", "openSSS（内置，可选）"))
-        }
-        return result
     }
 
     private func refreshDiagnostic() {
-        scanned = TreeWidgetSnapshotWriter.scanInstalledApps()
+        scanned = TreeWidgetSnapshotWriter.allCandidates()
         diagnosticText = TreeWidgetSnapshotWriter.diagnostic()
     }
 
@@ -46,7 +45,7 @@ struct LCTreeWidgetSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Text("这里列出的是 TreeNewBee 里安装的 App（Documents/Applications 与共享容器/LiveContainer/Applications）。\n勾选后点保存，桌面与锁屏小组件会立刻刷新。一个都不勾则自动显示全部。")
+                Text("这里列出 TreeNewBee 里安装的 App（Documents/Applications 与共享容器/LiveContainer/Applications），以及首条「内置 openSSS」。\n勾选后点保存，桌面与锁屏小组件会立刻刷新。一个都不勾则自动显示全部（含 openSSS）。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -66,9 +65,9 @@ struct LCTreeWidgetSettingsView: View {
                     }
                 }
             } header: {
-                Text("TreeNewBee 已安装 App（\(scanned.count)）")
+                Text("可显示的小组件条目（\(scanned.count)）")
             } footer: {
-                Text(scanned.isEmpty ? "⚠️ 没扫描到任何 .app。请确认 App 是装在 TreeNewBee 里，而不是用 openSSS 侧载到桌面的。" : "数据源：TreeNewBee 扫盘，不含 openSSS 侧载的桌面 App。")
+                Text(scanned.isEmpty ? "⚠️ 没扫描到任何 .app。请确认 App 是装在 TreeNewBee 里，而不是用 openSSS 侧载到桌面的。" : "首条 openSSS 是合体包内置项；数据源为 TreeNewBee 扫盘，不含 openSSS 侧载到桌面的 App。")
                     .font(.caption2)
             }
 

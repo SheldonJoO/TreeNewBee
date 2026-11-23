@@ -5,7 +5,9 @@
 //  数据源只扫描 TreeNewBee 自己安装 Guest App 的两个目录：
 //    · LCPath.bundlePath          = Documents/Applications
 //    · LCPath.lcGroupBundlePath   = App Group/LiveContainer/Applications
-//  openSSS 侧载到桌面的 App 不在这里，绝不会被写进小组件。
+//  另外把「内置 openSSS」作为一条候选，用户可在设置里勾选，让它和
+//  普通 Guest App 一样出现在桌面 / 锁屏小组件里。
+//  openSSS 侧载到桌面的那些 App 仍不属于这里，不会被写进小组件。
 //
 //  ⚠️ 侧载环境下 appex 的 App Group 实测完全不可用（可用容器 0 个），
 //  所以主通道改成 Keychain：宿主把列表+图标写进 Keychain，widget 直接读。
@@ -88,6 +90,27 @@ enum TreeWidgetSnapshotWriter {
         return result
     }
 
+    /// 内置 openSSS：合体包里必然存在，作为一条普通候选放进小组件列表。
+    /// 它同样走 livecontainer-launch 深链，宿主会用品牌启动页遮住中间跳转。
+    static var builtInEntry: TreeWidgetScannedApp? {
+        guard UserDefaults.sideStoreExist() else { return nil }
+        return TreeWidgetScannedApp(bundleName: "builtinSideStore",
+                                    name: "openSSS",
+                                    container: "",
+                                    icon: BuiltInSideStoreAppInfo.shared.iconIsDarkIcon(false),
+                                    isShared: false)
+    }
+
+    /// 设置页与快照共用的完整候选列表（内置 openSSS 排在最前）
+    static func allCandidates() -> [TreeWidgetScannedApp] {
+        var list = scanInstalledApps()
+        if let builtIn = builtInEntry,
+           !list.contains(where: { $0.bundleName == builtIn.bundleName }) {
+            list.insert(builtIn, at: 0)
+        }
+        return list
+    }
+
     private static var allRoots: [URL] {
         let fm = FileManager.default
         var roots: [URL] = []
@@ -123,7 +146,7 @@ enum TreeWidgetSnapshotWriter {
 
     @discardableResult
     static func refresh(apps: [LCAppModel], hiddenApps: [LCAppModel] = []) -> Int {
-        var candidates = scanInstalledApps()
+        var candidates = allCandidates()
         // UI 列表只用来补容器信息，不作为数据源
         for model in apps + hiddenApps {
             guard let bundle = model.appInfo.relativeBundlePath, !bundle.isEmpty else { continue }
@@ -153,17 +176,8 @@ enum TreeWidgetSnapshotWriter {
                                                iconData: iconBase64(app.icon)))
         }
 
-        // 内置 openSSS 只有手动勾选才出现，不再混进「已安装 App」
-        if !automaticMode && manual.contains("builtinSideStore") && UserDefaults.sideStoreExist() {
-            let builtin = BuiltInSideStoreAppInfo.shared
-            let builtinName = builtin.displayName() as String?
-            entries.append(TreeWidgetAppEntry(name: builtinName ?? "openSSS",
-                                               bundleName: "builtinSideStore",
-                                               container: "builtinSideStore",
-                                               icon: "builtinSideStore.png",
-                                               iconData: iconBase64(builtin.iconIsDarkIcon(false))))
-        }
-
+        // 内置 openSSS 与其它 Guest App 一视同仁：启动时的中间闪屏由
+        // TreeLaunchOverlay 品牌过渡页统一遮住，不再靠"删掉这一项"回避。
         let snapshot = TreeWidgetSnapshot(version: 1, apps: entries)
         guard let data = try? JSONEncoder().encode(snapshot) else { return 0 }
 
@@ -216,9 +230,9 @@ enum TreeWidgetSnapshotWriter {
     /// 设置页自检
     static func diagnostic() -> String {
         let fm = FileManager.default
-        let scanned = scanInstalledApps()
+        let scanned = allCandidates()
         var lines: [String] = []
-        lines.append("检测到 TreeNewBee 已安装 App：\(scanned.count) 个")
+        lines.append("小组件候选条目：\(scanned.count) 个（含内置 openSSS）")
         for app in scanned.prefix(20) {
             lines.append("  · \(app.name)  [\(app.bundleName)]\(app.isShared ? " 共享" : "")")
         }

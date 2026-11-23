@@ -109,6 +109,8 @@ NSURL* SideStoreSource_hook_altStoreSourceURL(id self, SEL cmd) {
 
 static void SSInstallVersionWindow(UIWindowScene *windowScene)
 {
+    // TreeNewBee: 隐藏 openSSS 界面底部的版本信息小字（LC/SS/iOS build）。
+    return;
     NSString *identifier = windowScene.session.persistentIdentifier;
     if (identifier.length == 0 || SSVersionWindows[identifier] != nil) {
         return;

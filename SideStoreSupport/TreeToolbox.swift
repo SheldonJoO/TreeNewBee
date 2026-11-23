@@ -4,15 +4,16 @@
 //
 //  悬浮「工具箱」按钮 + 两个功能：
 //  1) 手机信息（与爱思助手截图一致的字段）
-//  2) 屏蔽 iOS 更新（内置爱思版 / 尝鲜派版 tvOS 26 Beta 描述文件）
+//  2) 屏蔽 iOS 更新（爱思版 / 尝鲜派版描述文件）
 //
-//  描述文件通过本机 HTTP 服务交给 Safari 下载，用户在「设置 → 通用 →
+//  描述文件直接交给 Safari 打开官方 https 链接下载，用户在「设置 → 通用 →
 //  VPN 与设备管理」里完成安装。Apple 不允许 App 直接安装描述文件。
+//  ⚠️ 早期版本用 127.0.0.1 本地 HTTP 服务转发内置文件，链接不对且
+//  Safari 不一定认，已废弃。
 //
 
 import Foundation
 import UIKit
-import Network
 import Darwin
 
 @objc(TreeToolbox)
@@ -288,65 +289,16 @@ private func deviceSections() -> [[DeviceInfo]] {
     return [info1, info2, info3]
 }
 
-// MARK: - 描述文件安装
+// MARK: - 描述文件官方下载地址
+//
+// 两个入口分别对应两个上游，不能写成同一个，也不能回落到 127.0.0.1：
+//   · 爱思助手  https://d-updater.i4.cn/web/mobileconfig/iOS26.mobileconfig
+//   · 尝鲜派    https://media.sunbelife.com/2026-06-04-noota-26.mobileconfig
+// Safari 打开 .mobileconfig 会提示「下载配置描述文件」，再去设置里安装。
 
-private final class TreeProfileInstaller {
-    static let shared = TreeProfileInstaller()
-    private var listener: NWListener?
-    private var payload = Data()
-    private var filename = "profile.mobileconfig"
-    private var expire: DispatchWorkItem?
-
-    func install(name: String) -> Bool {
-        guard let url = Bundle(for: TreeToolbox.self).url(forResource: name, withExtension: "mobileconfig")
-                ?? Bundle.main.url(forResource: name, withExtension: "mobileconfig"),
-              let data = try? Data(contentsOf: url) else { return false }
-        payload = data
-        filename = "\(name).mobileconfig"
-        listener?.cancel()
-        expire?.cancel()
-
-        let params = NWParameters.tcp
-        params.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: .any)
-        guard let newListener = try? NWListener(using: params) else { return false }
-        listener = newListener
-        newListener.newConnectionHandler = { [weak self] connection in
-            guard let self else { return }
-            connection.stateUpdateHandler = { state in
-                guard case .ready = state else { return }
-                connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { _, _, _, _ in
-                    let header = """
-                    HTTP/1.1 200 OK\r
-                    Content-Type: application/x-apple-aspen-config\r
-                    Content-Disposition: attachment; filename="\(self.filename)"\r
-                    Content-Length: \(self.payload.count)\r
-                    Connection: close\r
-                    \r
-                    """
-                    var response = Data(header.utf8)
-                    response.append(self.payload)
-                    connection.send(content: response, completion: .contentProcessed { _ in
-                        connection.cancel()
-                    })
-                }
-            }
-            connection.start(queue: DispatchQueue.global(qos: .userInitiated))
-        }
-        newListener.start(queue: DispatchQueue.global(qos: .userInitiated))
-        guard let port = newListener.port?.rawValue else { return false }
-
-        let work = DispatchWorkItem { [weak self] in
-            self?.listener?.cancel()
-            self?.listener = nil
-        }
-        expire = work
-        DispatchQueue.global().asyncAfter(deadline: .now() + 120, execute: work)
-
-        guard let download = URL(string: "http://127.0.0.1:\(port)/\(filename)") else { return false }
-        guard UIApplication.shared.canOpenURL(download) else { return false }
-        UIApplication.shared.open(download, options: [:]) { _ in }
-        return true
-    }
+private enum TreeProfileURL {
+    static let aisi = "https://d-updater.i4.cn/web/mobileconfig/iOS26.mobileconfig"
+    static let xianchangpai = "https://media.sunbelife.com/2026-06-04-noota-26.mobileconfig"
 }
 
 // MARK: - 工具箱页面
@@ -361,8 +313,8 @@ private final class TreeToolboxViewController: UITableViewController {
 
     private let device = deviceSections()
     private let profiles: [(String, String, String)] = [
-        ("iOS26-aisi", "屏蔽 iOS 更新（爱思版）", "爱思助手提供 · 关闭自动下载更新"),
-        ("iOS26-xianchangpai", "屏蔽 iOS 更新（尝鲜派版）", "尝鲜派提供 · 关闭自动下载更新")
+        ("屏蔽 iOS 更新（爱思版）", "爱思助手提供 · 关闭自动下载更新", TreeProfileURL.aisi),
+        ("屏蔽 iOS 更新（尝鲜派版）", "尝鲜派提供 · 关闭自动下载更新", TreeProfileURL.xianchangpai)
     ]
 
     override func viewDidLoad() {
@@ -407,19 +359,19 @@ private final class TreeToolboxViewController: UITableViewController {
         } else if indexPath.section == 1 {
             if indexPath.row < profiles.count {
                 let p = profiles[indexPath.row]
-                config.text = p.1
-                config.secondaryText = p.2
+                config.text = p.0
+                config.secondaryText = p.1
                 config.image = UIImage(systemName: "shield.slash")
                 cell.accessoryType = .disclosureIndicator
             } else {
-                config.text = "体验 iOS 26（Apple Beta）"
+                config.text = "体验测试版 iOS"
                 config.secondaryText = "前往 beta.apple.com 注册"
                 config.image = UIImage(systemName: "sparkles")
                 cell.accessoryType = .disclosureIndicator
             }
         } else {
-            config.text = "下载后请前往 设置 → 通用 → VPN 与设备管理 安装，重启后生效。"
-            config.secondaryText = "两个链接实际是同一份 Apple 签名的 tvOS 26 Beta 描述文件"
+            config.text = "点任意一项会用 Safari 打开官方描述文件，下载后到 设置 → 通用 → VPN 与设备管理 安装，重启后生效。"
+            config.secondaryText = "两个链接分别来自爱思助手与尝鲜派，装其中一个即可"
             config.textProperties.font = .systemFont(ofSize: 13)
             config.secondaryTextProperties.font = .systemFont(ofSize: 12)
             config.secondaryTextProperties.color = .secondaryLabel
@@ -435,15 +387,20 @@ private final class TreeToolboxViewController: UITableViewController {
             UIApplication.shared.open(url)
         } else if indexPath.section == 1 {
             if indexPath.row < profiles.count {
-                let name = profiles[indexPath.row].0
-                let ok = TreeProfileInstaller.shared.install(name: name)
-                let alert = UIAlertController(
-                    title: ok ? "已打开 Safari" : "描述文件缺失",
-                    message: ok ? "描述文件已下载。请打开「设置 → 通用 → VPN 与设备管理」完成安装，然后重启设备。" :
-                        "请确认合体包内包含 \(name).mobileconfig。",
-                    preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: "好", style: .default))
-                present(alert, animated: true)
+                // 直接用官方 https 链接，Safari 会弹出「下载配置描述文件」。
+                // 不再走内置文件 + 127.0.0.1 本地服务（链接错误，且 Safari 不认）。
+                let link = profiles[indexPath.row].2
+                guard let url = URL(string: link) else { return }
+                UIApplication.shared.open(url, options: [:]) { [weak self] ok in
+                    guard let self, !ok else { return }
+                    DispatchQueue.main.async {
+                        let alert = UIAlertController(title: "无法打开链接",
+                                                      message: link,
+                                                      preferredStyle: .alert)
+                        alert.addAction(UIAlertAction(title: "好", style: .default))
+                        self.present(alert, animated: true)
+                    }
+                }
             } else if let url = URL(string: "https://beta.apple.com/") {
                 UIApplication.shared.open(url)
             }

@@ -31,14 +31,8 @@ struct LCTabView: View {
     let pub = NotificationCenter.default.publisher(for: UIScene.didDisconnectNotification)
     
     var body: some View {
-        // TreeNewBee: 三个 Tab —— openSSS 放最左，点它一键进入内置 openSSS
+        // TreeNewBee: 两个 Tab —— openSSS 入口移到 App 列表加号菜单「侧载到桌面」
         TabView(selection: $sharedModel.selectedTab) {
-            TreeOpenSSSTabView()
-                .tabItem {
-                    Label("openSSS", systemImage: "app.badge.checkmark")
-                }
-                .tag(LCTabIdentifier.openSSS)
-
             LCAppListView()
                 .tabItem {
                     Label("App", systemImage: "square.stack.3d.up.fill")
@@ -132,6 +126,9 @@ struct LCTabView: View {
     }
     
     func dispatchURL(url: URL) {
+        // 小组件来的深链：第一时间盖品牌启动页，遮住唤醒宿主、切 Tab、
+        // 渲染 App 列表、guest 启动页等中间画面。
+        TreeLaunchOverlay.showIfNeeded(for: url)
         repeat {
             if url.isFileURL {
                 sharedModel.selectedTab = .apps

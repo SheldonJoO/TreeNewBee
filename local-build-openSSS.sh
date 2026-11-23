@@ -164,16 +164,12 @@ mv "$WIDGET/TreeWidgetExtension" "$WIDGET/LiveWidgetExtension"
 ldid -STreeWidget/TreeWidgetExtension/TreeWidget.entitlements "$WIDGET/LiveWidgetExtension"
 echo "  -> 自研 Tree 小组件已嵌入（桌面 2x2/4x2 + 锁屏圆形/矩形/内联）"
 
-# TreeNewBee: 内置两个屏蔽 iOS 更新的描述文件。SideStoreSupport.framework
-# 在宿主和内置 openSSS 进程中都会被 dlopen，放这里两边都能读到。
-for mc in Resources/MobileConfigs/*.mobileconfig; do
-  [ -f "$mc" ] || continue
-  cp "$mc" Payload/TreeApps.app/Frameworks/SideStoreSupport.framework/
-done
-# 注意：不要把 mobileconfig 放进 $FW（SideStoreApp.framework）。它本质是 APPL 包，
-# 往里加资源会破坏 CodeResources → 侧载 0xe8008017。TreeToolbox 从
-# SideStoreSupport.framework 读取即可（Bundle(for: TreeToolbox.self)）。
-echo "  -> 描述文件已内置: $(ls Resources/MobileConfigs/*.mobileconfig | wc -l | tr -d ' ') 个"
+# TreeNewBee: 屏蔽 iOS 更新改为 Safari 直连官方 https 链接（爱思 / 尝鲜派），
+# TreeToolbox.swift 里已写死这两个 URL。早期「把 mobileconfig 内置进
+# SideStoreSupport.framework + 127.0.0.1 本地 HTTP 服务转发」的做法已废弃：
+# 那个链接是错的，Safari 也未必认。Resources/MobileConfigs 只留作源码备份，
+# 不再注入 IPA，免得包里残留旧描述文件误导排查。
+echo "  -> 屏蔽更新：Safari 直连官方链接（不内置描述文件）"
 
 echo "==> [8/8] 签名 + 打包"
 find Payload -type d -name "_CodeSignature" 2>/dev/null | while read d; do mv "$d" "$JUNK/cs-$(date +%s%N)" 2>/dev/null || true; done

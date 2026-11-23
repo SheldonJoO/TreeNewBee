@@ -2,10 +2,11 @@
 //  TreeWidget.swift
 //  TreeNewBee 桌面 / 锁屏小组件
 //
-//  显示的是「TreeNewBee 里安装的 App」。宿主把列表写进共享容器
-//  LiveContainer/TreeWidget/apps.json；若快照读不到，小组件会直接扫描
+//  显示的是「TreeNewBee 里安装的 App」以及可选的内置 openSSS。宿主把列表写进
+//  共享容器 LiveContainer/TreeWidget/apps.json；若快照读不到，小组件会直接扫描
 //  同一容器下 LiveContainer/Applications 里的 .app 作为兜底。
-//  点击用 livecontainer://livecontainer-launch 深链回 TreeNewBee 启动对应 App。
+//  点击用 livecontainer://livecontainer-launch 深链回 TreeNewBee 启动对应 App；
+//  source=widget 让宿主第一时间盖上品牌启动页，遮住中间的页面切换。
 //
 
 import Foundation
@@ -33,7 +34,9 @@ private struct TreeApp: Decodable, Identifiable {
 
     var launchURL: URL? {
         var components = URLComponents(string: "livecontainer://livecontainer-launch")
-        var items = [URLQueryItem(name: "bundle-name", value: bundleName)]
+        // source=widget：宿主据此在最早期盖一层品牌启动页，避免闪出 App 列表
+        var items = [URLQueryItem(name: "bundle-name", value: bundleName),
+                     URLQueryItem(name: "source", value: "widget")]
         if !container.isEmpty {
             items.append(URLQueryItem(name: "container-folder-name", value: container))
         }
@@ -45,6 +48,10 @@ private struct TreeApp: Decodable, Identifiable {
         // Keychain 快照自带图标，不依赖任何容器
         if let s = iconData, let d = Data(base64Encoded: s), let img = UIImage(data: d) {
             return img
+        }
+        // 兜底扫盘路径没有图标文件，内置 openSSS 用系统图标占位
+        if bundleName == "builtinSideStore" {
+            return UIImage(systemName: "app.badge.checkmark.fill")
         }
         guard !icon.isEmpty, let root = WidgetStore.activeRoot else { return nil }
         return UIImage(contentsOfFile: root.appendingPathComponent("Icons")
@@ -152,6 +159,12 @@ private struct TreeApp: Decodable, Identifiable {
                 }
             }
         }
+        // 兜底路径也补上内置 openSSS，保证任何通道下都能把它加进小组件
+        if !result.contains(where: { $0.bundleName == "builtinSideStore" }),
+           selection.isEmpty || selection.contains("builtinSideStore") {
+            result.insert(TreeApp(name: "openSSS", bundleName: "builtinSideStore",
+                                  container: "", icon: "builtinSideStore", iconData: nil), at: 0)
+        }
         return result
     }
 
@@ -225,6 +238,13 @@ private struct TreeEntry: TimelineEntry {
 }
 
 private struct TreeProvider: TimelineProvider {
+    // 内置 openSSS 是合法条目，不再过滤。它启动时中间的闪屏与"已安装应用"页
+    // 由宿主 TreeLaunchOverlay 品牌启动页统一遮住，而不是靠删掉这一项回避。
+    private func sanitize(_ apps: [TreeApp]) -> [TreeApp] {
+        var seen = Set<String>()
+        return Array(apps.filter { seen.insert($0.id).inserted }.prefix(12))
+    }
+
     private func load() -> [TreeApp] {
         WidgetStore.activeRoot = nil
         // 1) Keychain 主通道（侧载 appex 的 App Group 不可用，这个才靠得住）
@@ -234,7 +254,7 @@ private struct TreeProvider: TimelineProvider {
         if let data = kc.data,
            let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data),
            !snapshot.apps.isEmpty {
-            return Array(snapshot.apps.prefix(12))
+            return sanitize(snapshot.apps)
         }
         // 2) App Group 快照（辅助通道，逐个容器找第一个有数据的）
         for root in TreeApp.snapshotRoots {
@@ -242,10 +262,10 @@ private struct TreeProvider: TimelineProvider {
                   let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data),
                   !snapshot.apps.isEmpty else { continue }
             WidgetStore.activeRoot = root
-            return Array(snapshot.apps.prefix(12))
+            return sanitize(snapshot.apps)
         }
         // 3) 都读不到：直接扫 TreeNewBee 装在容器里的 .app
-        return Array(TreeApp.scanInstalledApps().prefix(12))
+        return sanitize(TreeApp.scanInstalledApps())
     }
 
     func placeholder(in context: Context) -> TreeEntry {
