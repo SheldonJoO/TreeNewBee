@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>application-identifier</key>
+	<string>AAAAA11111.com.kdt.livecontainer.TreeWidget</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>AAAAA11111</string>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.SideStore.SideStore</string>
+		<string>group.com.rileytestut.AltStore</string>
+	</array>
+	<!-- 和主 App 的第一个 keychain group 完全一致：侧载重写成真实 team 后，
+	     widget 用 SecItemCopyMatching 就能读到宿主写的快照。
+	     App Group 在侧载 appex 里实测完全不可用，Keychain 是唯一可靠通道。 -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>AAAAA11111.com.kdt.livecontainer.shared</string>
+	</array>
+	<key>get-task-allow</key>
+	<true/>
+</dict>
+</plist>

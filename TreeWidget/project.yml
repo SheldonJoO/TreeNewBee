@@ -1,0 +1,34 @@
+name: TreeWidget
+options:
+  deploymentTarget:
+    iOS: 16.0
+  groupSortPosition: bottom
+targets:
+  TreeWidgetExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: 16.0
+    bundleId: com.kdt.livecontainer.TreeWidget
+    info:
+      path: TreeWidgetExtension/Info.plist
+      properties:
+        CFBundleDevelopmentRegion: zh-Hans
+        CFBundleIdentifier: com.kdt.livecontainer.TreeWidget
+        CFBundleDisplayName: 🌲树应用
+        CFBundleName: TreeWidgetExtension
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        MinimumOSVersion: "16.0"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    sources:
+      - path: TreeWidgetExtension
+    settings:
+      base:
+        PRODUCT_NAME: TreeWidgetExtension
+        PRODUCT_BUNDLE_IDENTIFIER: com.kdt.livecontainer.TreeWidget
+        SKIP_INSTALL: YES
+        SWIFT_VERSION: 5.0
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGN_ENTITLEMENTS: TreeWidgetExtension/TreeWidget.entitlements
